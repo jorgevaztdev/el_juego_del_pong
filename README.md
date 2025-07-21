@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # El Juego del Ping Pong
 
 "El Juego del Ping Pong" – Oh, it's just a little something, a digital diversion, really. You know, a classic Pong game, cobbled together with Python and Pygame. It's not exactly *Annie Hall*, but it's got paddles and a ball. You can even play against a computer, which, let's be honest, is probably less judgmental than most people. We track the scores, because, well, someone has to keep tabs on these things, right? It's a simple, retro experience, a brief respite from the crushing weight of existence, or at least from deciding what to have for dinner.
@@ -87,3 +88,6 @@ python main.py
 ## Score Tracking
 
 Game scores are automatically saved to `scores.txt` located in the `game_pong` directory. Each entry includes the date, timestamp, winner, and final score.
+=======
+# el_juego_del_pong
+>>>>>>> b1f436cd7184af36081a47da676341e4efba6c4a
