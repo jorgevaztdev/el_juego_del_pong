@@ -3,9 +3,6 @@ import random
 import datetime
 import math
 
-# Initialize Pygame
-pygame.init()
-
 # Screen dimensions
 SCREEN_WIDTH = 800
 SCREEN_HEIGHT = 600
@@ -88,6 +85,113 @@ DIFFICULTY_SETTINGS = {
     "hard": {"ball_speed_x": 8, "ball_speed_y": 8},
 }
 
+# Paddle properties
+PADDLE_WIDTH = 15
+PADDLE_HEIGHT = 100
+PADDLE_SPEED = 7
+
+# Ball properties
+BALL_SIZE = 15
+WINNING_SCORE = 5
+
+class GameState:
+    def __init__(self, difficulty, player_side):
+        self.paddle_a = pygame.Rect(50, SCREEN_HEIGHT // 2 - PADDLE_HEIGHT // 2, PADDLE_WIDTH, PADDLE_HEIGHT)
+        self.paddle_b = pygame.Rect(SCREEN_WIDTH - 50 - PADDLE_WIDTH, SCREEN_HEIGHT // 2 - PADDLE_HEIGHT // 2, PADDLE_WIDTH, PADDLE_HEIGHT)
+        self.ball = pygame.Rect(SCREEN_WIDTH // 2 - BALL_SIZE // 2, SCREEN_HEIGHT // 2 - BALL_SIZE // 2, BALL_SIZE, BALL_SIZE)
+
+        self.ball_speed_x = DIFFICULTY_SETTINGS[difficulty]["ball_speed_x"] * random.choice((1, -1))
+        self.ball_speed_y = DIFFICULTY_SETTINGS[difficulty]["ball_speed_y"] * random.choice((1, -1))
+
+        self.score_a = 0
+        self.score_b = 0
+        self.player_side = player_side
+        self.difficulty = difficulty
+
+def handle_paddle_movement(keys, game_state):
+    # Player-controlled paddle
+    if game_state.player_side == "left":
+        if keys[pygame.K_w] and game_state.paddle_a.top > 0:
+            game_state.paddle_a.y -= PADDLE_SPEED
+        if keys[pygame.K_s] and game_state.paddle_a.bottom < SCREEN_HEIGHT:
+            game_state.paddle_a.y += PADDLE_SPEED
+    else:
+        if keys[pygame.K_UP] and game_state.paddle_b.top > 0:
+            game_state.paddle_b.y -= PADDLE_SPEED
+        if keys[pygame.K_DOWN] and game_state.paddle_b.bottom < SCREEN_HEIGHT:
+            game_state.paddle_b.y += PADDLE_SPEED
+
+    # AI-controlled paddle
+    ai_paddle = game_state.paddle_b if game_state.player_side == "left" else game_state.paddle_a
+    if ai_paddle.centery < game_state.ball.centery:
+        ai_paddle.y += PADDLE_SPEED
+    if ai_paddle.centery > game_state.ball.centery:
+        ai_paddle.y -= PADDLE_SPEED
+
+    # Boundary checks for both paddles
+    for paddle in [game_state.paddle_a, game_state.paddle_b]:
+        if paddle.top < 0:
+            paddle.top = 0
+        if paddle.bottom > SCREEN_HEIGHT:
+            paddle.bottom = SCREEN_HEIGHT
+
+def handle_ball_collision(game_state, screen_shake, particles, current_theme):
+    game_state.ball.x += game_state.ball_speed_x
+    game_state.ball.y += game_state.ball_speed_y
+
+    # Ball collision with top/bottom walls
+    if game_state.ball.top <= 0 or game_state.ball.bottom >= SCREEN_HEIGHT:
+        game_state.ball_speed_y *= -1
+        for _ in range(5):
+            particles.append(Particle(game_state.ball.centerx, game_state.ball.centery,
+                                    THEMES[current_theme]["ball_color"],
+                                    game_state.ball_speed_x * 0.3, game_state.ball_speed_y * -0.5))
+
+    # Ball collision with paddles
+    if game_state.ball.colliderect(game_state.paddle_a) or game_state.ball.colliderect(game_state.paddle_b):
+        game_state.ball_speed_x *= -1
+        screen_shake.add_shake(Effects.SHAKE_INTENSITY, 10)
+        for _ in range(Effects.PARTICLE_COUNT):
+            particles.append(Particle(game_state.ball.centerx, game_state.ball.centery,
+                                    THEMES[current_theme]["paddle_color"],
+                                    game_state.ball_speed_x * 0.2, random.uniform(-3, 3)))
+
+def handle_scoring(game_state, particles, current_theme):
+    winner = None
+    scored = False
+    base_ball_speed_x = DIFFICULTY_SETTINGS[game_state.difficulty]["ball_speed_x"]
+    base_ball_speed_y = DIFFICULTY_SETTINGS[game_state.difficulty]["ball_speed_y"]
+
+    if game_state.ball.left <= 0:
+        game_state.score_b += 1
+        scored = True
+        for _ in range(20):
+            particles.append(Particle(game_state.ball.centerx, game_state.ball.centery,
+                                    THEMES[current_theme]["accent_color"],
+                                    random.uniform(-5, 5), random.uniform(-5, 5)))
+        if game_state.score_b >= WINNING_SCORE:
+            winner = "Player B"
+            save_score(winner, game_state.score_a, game_state.score_b)
+
+    elif game_state.ball.right >= SCREEN_WIDTH:
+        game_state.score_a += 1
+        scored = True
+        for _ in range(20):
+            particles.append(Particle(game_state.ball.centerx, game_state.ball.centery,
+                                    THEMES[current_theme]["accent_color"],
+                                    random.uniform(-5, 5), random.uniform(-5, 5)))
+        if game_state.score_a >= WINNING_SCORE:
+            winner = "Player A"
+            save_score(winner, game_state.score_a, game_state.score_b)
+
+    if scored:
+        game_state.ball.x = SCREEN_WIDTH // 2 - BALL_SIZE // 2
+        game_state.ball.y = SCREEN_HEIGHT // 2 - BALL_SIZE // 2
+        game_state.ball_speed_x = base_ball_speed_x * random.choice((1, -1))
+        game_state.ball_speed_y = base_ball_speed_y * random.choice((1, -1))
+
+    return winner, scored
+
 # Particle system
 class Particle:
     def __init__(self, x, y, color, velocity_x=0, velocity_y=0):
@@ -162,39 +266,6 @@ class ScreenShake:
                    random.randint(-self.shake_intensity, self.shake_intensity))
         return (0, 0)
 
-# Create the screen
-screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
-pygame.display.set_caption("El juego del ping pong")
-
-# Paddle properties
-PADDLE_WIDTH = 15
-PADDLE_HEIGHT = 100
-PADDLE_SPEED = 7
-
-# Ball properties
-BALL_SIZE = 15
-BALL_SPEED_X = 5
-BALL_SPEED_Y = 5
-
-# Scores
-score_a = 0
-score_b = 0
-WINNING_SCORE = 5
-
-# Enhanced Fonts
-try:
-    title_font = pygame.font.Font(None, 84)
-    large_font = pygame.font.Font(None, 64)
-    medium_font = pygame.font.Font(None, 48)
-    small_font = pygame.font.Font(None, 36)
-    score_font = pygame.font.Font(None, 96)
-except:
-    title_font = pygame.font.Font(None, 74)
-    large_font = pygame.font.Font(None, 54)
-    medium_font = pygame.font.Font(None, 38)
-    small_font = pygame.font.Font(None, 28)
-    score_font = pygame.font.Font(None, 86)
-
 def draw_gradient_background(surface):
     """Draw a subtle gradient background"""
     for y in range(SCREEN_HEIGHT):
@@ -206,7 +277,6 @@ def draw_gradient_background(surface):
 
 def draw_glow_circle(surface, color, center, radius, glow_radius=20):
     """Draw a circle with glow effect"""
-    # Draw multiple circles with decreasing alpha for glow effect
     for i in range(glow_radius, 0, -2):
         alpha = int(30 * (glow_radius - i) / glow_radius)
         glow_surf = pygame.Surface((i * 2, i * 2), pygame.SRCALPHA)
@@ -214,12 +284,10 @@ def draw_glow_circle(surface, color, center, radius, glow_radius=20):
         pygame.draw.circle(glow_surf, glow_color, (i, i), i)
         surface.blit(glow_surf, (center[0] - i, center[1] - i))
     
-    # Draw the main circle
     pygame.draw.circle(surface, color, center, radius)
 
 def draw_glow_rect(surface, color, rect, glow_radius=10, corner_radius=8):
     """Draw a rounded rectangle with glow effect"""
-    # Draw glow effect
     for i in range(glow_radius, 0, -1):
         alpha = int(40 * (glow_radius - i) / glow_radius)
         glow_surf = pygame.Surface((rect.width + i * 2, rect.height + i * 2), pygame.SRCALPHA)
@@ -228,18 +296,15 @@ def draw_glow_rect(surface, color, rect, glow_radius=10, corner_radius=8):
         pygame.draw.rect(glow_surf, glow_color, glow_rect, border_radius=corner_radius + i)
         surface.blit(glow_surf, (rect.x - i, rect.y - i))
     
-    # Draw the main rectangle
     pygame.draw.rect(surface, color, rect, border_radius=corner_radius)
 
 def draw_text_with_shadow(text, font, color, surface, x, y, shadow_offset=2):
     """Draw text with shadow effect"""
-    # Draw shadow
     shadow_text = font.render(text, True, Colors.TEXT_SHADOW[:3])
     shadow_rect = shadow_text.get_rect()
     shadow_rect.center = (x + shadow_offset, y + shadow_offset)
     surface.blit(shadow_text, shadow_rect)
     
-    # Draw main text
     main_text = font.render(text, True, color)
     main_rect = main_text.get_rect()
     main_rect.center = (x, y)
@@ -253,11 +318,9 @@ def draw_animated_center_line(surface, color, time_offset=0):
     
     for i in range(num_dots):
         y = i * dot_spacing + 10
-        # Animate the glow intensity
         glow_intensity = (math.sin(time_offset + i * 0.3) + 1) * 0.5
         current_color = [int(c * (0.5 + glow_intensity * 0.5)) for c in color[:3]]
         
-        # Draw glowing dot
         for radius in range(8, 0, -1):
             alpha = int(60 * (8 - radius) / 8 * glow_intensity)
             dot_surf = pygame.Surface((radius * 2, radius * 2), pygame.SRCALPHA)
@@ -265,20 +328,13 @@ def draw_animated_center_line(surface, color, time_offset=0):
             pygame.draw.circle(dot_surf, dot_color, (radius, radius), radius)
             surface.blit(dot_surf, (SCREEN_WIDTH // 2 - radius, y - radius))
         
-        # Main dot
         pygame.draw.circle(surface, current_color, (SCREEN_WIDTH // 2, y), dot_radius)
 
 def draw_modern_ui_box(surface, rect, border_color, bg_color, corner_radius=15):
     """Draw a modern UI box with rounded corners and transparency"""
-    # Create surface with alpha
     box_surf = pygame.Surface((rect.width, rect.height), pygame.SRCALPHA)
-    
-    # Draw background with transparency
     pygame.draw.rect(box_surf, bg_color, (0, 0, rect.width, rect.height), border_radius=corner_radius)
-    
-    # Draw border
     pygame.draw.rect(box_surf, border_color, (0, 0, rect.width, rect.height), 3, border_radius=corner_radius)
-    
     surface.blit(box_surf, rect.topleft)
 
 def save_score(winner, score_a, score_b):
@@ -286,7 +342,8 @@ def save_score(winner, score_a, score_b):
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         f.write(f"Date: {timestamp}, Winner: {winner}, Score: {score_a} - {score_b}\n")
 
-def intro_screen():
+def intro_screen(screen, fonts):
+    title_font, _, medium_font, small_font, _ = fonts
     intro = True
     player_side = None
     difficulty = "medium"
@@ -320,16 +377,13 @@ def intro_screen():
                 if event.key == pygame.K_s:
                     current_theme = "sunset"
 
-        # Draw gradient background
         draw_gradient_background(screen)
         
-        # Animated title with glow
         title_glow_intensity = (math.sin(animation_time * 0.05) + 1) * 0.3 + 0.7
         title_color = [int(c * title_glow_intensity) for c in THEMES[current_theme]["accent_color"][:3]]
         draw_text_with_shadow("El Juego del Ping Pong", title_font, title_color, 
                             screen, SCREEN_WIDTH // 2, SCREEN_HEIGHT // 8, 3)
 
-        # Modern UI box
         rect_width = 700
         rect_height = 480
         rect_x = (SCREEN_WIDTH - rect_width) // 2
@@ -341,36 +395,30 @@ def intro_screen():
         text_y_start = rect_y + 40
         theme_color = THEMES[current_theme]["accent_color"]
 
-        # Side selection
         draw_text_with_shadow("Choose Your Side", medium_font, Colors.WHITE, 
                             screen, SCREEN_WIDTH // 2, text_y_start)
         draw_text_with_shadow("Press 'L' for Left Paddle  |  Press 'R' for Right Paddle", 
                             small_font, theme_color, screen, SCREEN_WIDTH // 2, text_y_start + 40)
 
-        # Difficulty selection
         diff_color = THEMES[current_theme]["paddle_color"]
         draw_text_with_shadow(f"Difficulty: {difficulty.upper()}", medium_font, diff_color, 
                             screen, SCREEN_WIDTH // 2, text_y_start + 100)
         draw_text_with_shadow("1: Easy  |  2: Medium  |  3: Hard", small_font, Colors.WHITE, 
                             screen, SCREEN_WIDTH // 2, text_y_start + 140)
 
-        # Theme selection
         draw_text_with_shadow(f"Theme: {THEMES[current_theme]['name']}", medium_font, 
                             THEMES[current_theme]["ball_color"], screen, SCREEN_WIDTH // 2, text_y_start + 200)
         draw_text_with_shadow("N: Neon  |  C: Classic  |  O: Ocean  |  S: Sunset", 
                             small_font, Colors.WHITE, screen, SCREEN_WIDTH // 2, text_y_start + 240)
 
-        # Preview paddles with current theme
         preview_paddle_left = pygame.Rect(SCREEN_WIDTH // 2 - 100, text_y_start + 280, 15, 60)
         preview_paddle_right = pygame.Rect(SCREEN_WIDTH // 2 + 85, text_y_start + 280, 15, 60)
         draw_glow_rect(screen, THEMES[current_theme]["paddle_color"], preview_paddle_left, 8, 8)
         draw_glow_rect(screen, THEMES[current_theme]["paddle_color"], preview_paddle_right, 8, 8)
         
-        # Preview ball
         ball_center = (SCREEN_WIDTH // 2, text_y_start + 310)
         draw_glow_circle(screen, THEMES[current_theme]["ball_color"], ball_center, 8, 15)
 
-        # Controls
         draw_text_with_shadow("Press 'Enter' to Pause  |  Press 'E' to Exit", 
                             small_font, Colors.LIGHT_BLUE, screen, SCREEN_WIDTH // 2, text_y_start + 380)
 
@@ -380,7 +428,8 @@ def intro_screen():
     
     return player_side, difficulty, current_theme
 
-def pause_menu(current_difficulty, current_theme):
+def pause_menu(screen, fonts, current_difficulty, current_theme):
+    _, large_font, medium_font, small_font, _ = fonts
     paused = True
     difficulty = current_difficulty
     theme = current_theme
@@ -409,16 +458,13 @@ def pause_menu(current_difficulty, current_theme):
                 if event.key == pygame.K_s:
                     theme = "sunset"
 
-        # Draw gradient background
         draw_gradient_background(screen)
         
-        # Animated pause title
         pause_glow_intensity = (math.sin(animation_time * 0.08) + 1) * 0.3 + 0.7
         pause_color = [int(c * pause_glow_intensity) for c in THEMES[theme]["accent_color"][:3]]
         draw_text_with_shadow("GAME PAUSED", large_font, pause_color, 
                             screen, SCREEN_WIDTH // 2, SCREEN_HEIGHT // 4, 3)
 
-        # Modern UI box
         rect_width = 600
         rect_height = 320
         rect_x = (SCREEN_WIDTH - rect_width) // 2
@@ -429,20 +475,17 @@ def pause_menu(current_difficulty, current_theme):
 
         text_y_start = rect_y + 40
 
-        # Difficulty selection
         diff_color = THEMES[theme]["paddle_color"]
         draw_text_with_shadow(f"Difficulty: {difficulty.upper()}", medium_font, diff_color, 
                             screen, SCREEN_WIDTH // 2, text_y_start)
         draw_text_with_shadow("1: Easy  |  2: Medium  |  3: Hard", small_font, Colors.WHITE, 
                             screen, SCREEN_WIDTH // 2, text_y_start + 40)
 
-        # Theme selection
         draw_text_with_shadow(f"Theme: {THEMES[theme]['name']}", medium_font, 
                             THEMES[theme]["ball_color"], screen, SCREEN_WIDTH // 2, text_y_start + 100)
         draw_text_with_shadow("N: Neon  |  C: Classic  |  O: Ocean  |  S: Sunset", 
                             small_font, Colors.WHITE, screen, SCREEN_WIDTH // 2, text_y_start + 140)
 
-        # Resume instruction with pulsing effect
         resume_intensity = (math.sin(animation_time * 0.1) + 1) * 0.3 + 0.7
         resume_color = [int(c * resume_intensity) for c in Colors.NEON_GREEN[:3]]
         draw_text_with_shadow("Press 'Enter' to Resume", medium_font, resume_color, 
@@ -455,21 +498,26 @@ def pause_menu(current_difficulty, current_theme):
     return difficulty, theme
 
 def main():
-    global score_a, score_b
+    pygame.init()
+    screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
+    pygame.display.set_caption("El juego del ping pong")
+    try:
+        title_font = pygame.font.Font(None, 84)
+        large_font = pygame.font.Font(None, 64)
+        medium_font = pygame.font.Font(None, 48)
+        small_font = pygame.font.Font(None, 36)
+        score_font = pygame.font.Font(None, 96)
+    except pygame.error:
+        title_font = pygame.font.Font(None, 74)
+        large_font = pygame.font.Font(None, 54)
+        medium_font = pygame.font.Font(None, 38)
+        small_font = pygame.font.Font(None, 28)
+        score_font = pygame.font.Font(None, 86)
+    fonts = (title_font, large_font, medium_font, small_font, score_font)
 
-    player_side, difficulty, current_theme = intro_screen()
+    player_side, difficulty, current_theme = intro_screen(screen, fonts)
+    game_state = GameState(difficulty, player_side)
 
-    BALL_SPEED_X = DIFFICULTY_SETTINGS[difficulty]["ball_speed_x"]
-    BALL_SPEED_Y = DIFFICULTY_SETTINGS[difficulty]["ball_speed_y"]
-
-    paddle_a = pygame.Rect(50, SCREEN_HEIGHT // 2 - PADDLE_HEIGHT // 2, PADDLE_WIDTH, PADDLE_HEIGHT)
-    paddle_b = pygame.Rect(SCREEN_WIDTH - 50 - PADDLE_WIDTH, SCREEN_HEIGHT // 2 - PADDLE_HEIGHT // 2, PADDLE_WIDTH, PADDLE_HEIGHT)
-    ball = pygame.Rect(SCREEN_WIDTH // 2 - BALL_SIZE // 2, SCREEN_HEIGHT // 2 - BALL_SIZE // 2, BALL_SIZE, BALL_SIZE)
-
-    ball_speed_x = BALL_SPEED_X * random.choice((1, -1))
-    ball_speed_y = BALL_SPEED_Y * random.choice((1, -1))
-
-    # Initialize visual effects
     particles = []
     ball_trail = BallTrail()
     screen_shake = ScreenShake()
@@ -487,9 +535,8 @@ def main():
                 if event.key == pygame.K_RETURN:
                     paused = not paused
                     if paused:
-                        difficulty, current_theme = pause_menu(difficulty, current_theme)
-                        BALL_SPEED_X = DIFFICULTY_SETTINGS[difficulty]["ball_speed_x"]
-                        BALL_SPEED_Y = DIFFICULTY_SETTINGS[difficulty]["ball_speed_y"]
+                        difficulty, current_theme = pause_menu(screen, fonts, difficulty, current_theme)
+                        game_state.difficulty = difficulty
                 if event.key == pygame.K_e:
                     running = False
 
@@ -497,152 +544,60 @@ def main():
             continue
 
         keys = pygame.key.get_pressed()
-        if player_side == "left":
-            if keys[pygame.K_w] and paddle_a.top > 0:
-                paddle_a.y -= PADDLE_SPEED
-            if keys[pygame.K_s] and paddle_a.bottom < SCREEN_HEIGHT:
-                paddle_a.y += PADDLE_SPEED
-            # AI for paddle_b
-            if paddle_b.centery < ball.centery:
-                paddle_b.y += PADDLE_SPEED
-            if paddle_b.centery > ball.centery:
-                paddle_b.y -= PADDLE_SPEED
-        else:
-            if keys[pygame.K_UP] and paddle_b.top > 0:
-                paddle_b.y -= PADDLE_SPEED
-            if keys[pygame.K_DOWN] and paddle_b.bottom < SCREEN_HEIGHT:
-                paddle_b.y += PADDLE_SPEED
-            # AI for paddle_a
-            if paddle_a.centery < ball.centery:
-                paddle_a.y += PADDLE_SPEED
-            if paddle_a.centery > ball.centery:
-                paddle_a.y -= PADDLE_SPEED
-
-
-        # Prevent paddles from moving out of bounds
-        if paddle_a.top < 0:
-            paddle_a.top = 0
-        if paddle_a.bottom > SCREEN_HEIGHT:
-            paddle_a.bottom = SCREEN_HEIGHT
-        if paddle_b.top < 0:
-            paddle_b.top = 0
-        if paddle_b.bottom > SCREEN_HEIGHT:
-            paddle_b.bottom = SCREEN_HEIGHT
-
-        ball.x += ball_speed_x
-        ball.y += ball_speed_y
-
-        # Ball collision with top/bottom walls
-        if ball.top <= 0 or ball.bottom >= SCREEN_HEIGHT:
-            ball_speed_y *= -1
-            # Add particles for wall collision
-            for _ in range(5):
-                particles.append(Particle(ball.centerx, ball.centery, 
-                                        THEMES[current_theme]["ball_color"], 
-                                        ball_speed_x * 0.3, ball_speed_y * -0.5))
+        handle_paddle_movement(keys, game_state)
+        handle_ball_collision(game_state, screen_shake, particles, current_theme)
+        winner, scored = handle_scoring(game_state, particles, current_theme)
         
-        # Ball collision with paddles
-        if ball.colliderect(paddle_a) or ball.colliderect(paddle_b):
-            ball_speed_x *= -1
-            # Add screen shake and particles
-            screen_shake.add_shake(Effects.SHAKE_INTENSITY, 10)
-            for _ in range(Effects.PARTICLE_COUNT):
-                particles.append(Particle(ball.centerx, ball.centery, 
-                                        THEMES[current_theme]["paddle_color"], 
-                                        ball_speed_x * 0.2, random.uniform(-3, 3)))
+        if scored:
+            if game_state.score_a > 0:
+                score_animation_a = 30
+            if game_state.score_b > 0:
+                score_animation_b = 30
 
-        # Scoring
-        if ball.left <= 0:
-            score_b += 1
-            score_animation_b = 30  # Animation frames
-            # Score particles
-            for _ in range(20):
-                particles.append(Particle(ball.centerx, ball.centery, 
-                                        THEMES[current_theme]["accent_color"], 
-                                        random.uniform(-5, 5), random.uniform(-5, 5)))
-            if score_b >= WINNING_SCORE:
-                save_score("Player B", score_a, score_b)
-                running = False
-            ball.x = SCREEN_WIDTH // 2 - BALL_SIZE // 2
-            ball.y = SCREEN_HEIGHT // 2 - BALL_SIZE // 2
-            ball_speed_x = BALL_SPEED_X * random.choice((1, -1))
-            ball_speed_y = BALL_SPEED_Y * random.choice((1, -1))
+        if winner:
+            running = False
 
-        if ball.right >= SCREEN_WIDTH:
-            score_a += 1
-            score_animation_a = 30  # Animation frames
-            # Score particles
-            for _ in range(20):
-                particles.append(Particle(ball.centerx, ball.centery, 
-                                        THEMES[current_theme]["accent_color"], 
-                                        random.uniform(-5, 5), random.uniform(-5, 5)))
-            if score_a >= WINNING_SCORE:
-                save_score("Player A", score_a, score_b)
-                running = False
-            ball.x = SCREEN_WIDTH // 2 - BALL_SIZE // 2
-            ball.y = SCREEN_HEIGHT // 2 - BALL_SIZE // 2
-            ball_speed_x = BALL_SPEED_X * random.choice((1, -1))
-            ball_speed_y = BALL_SPEED_Y * random.choice((1, -1))
-
-
-        # Update visual effects
-        ball_trail.update(ball.centerx, ball.centery)
+        ball_trail.update(game_state.ball.centerx, game_state.ball.centery)
         screen_shake.update()
         
-        # Update particles
         particles = [p for p in particles if p.life > 0]
         for particle in particles:
             particle.update()
         
-        # Update score animations
         if score_animation_a > 0:
             score_animation_a -= 1
         if score_animation_b > 0:
             score_animation_b -= 1
 
-        # Get screen shake offset
         shake_x, shake_y = screen_shake.get_offset()
         
-        # Draw gradient background
         draw_gradient_background(screen)
-        
-        # Draw animated center line
         draw_animated_center_line(screen, THEMES[current_theme]["accent_color"], animation_time * 0.1)
-        
-        # Draw ball trail
         ball_trail.draw(screen, THEMES[current_theme]["ball_color"])
         
-        # Draw paddles with glow effect
-        paddle_a_offset = pygame.Rect(paddle_a.x + shake_x, paddle_a.y + shake_y, 
-                                     paddle_a.width, paddle_a.height)
-        paddle_b_offset = pygame.Rect(paddle_b.x + shake_x, paddle_b.y + shake_y, 
-                                     paddle_b.width, paddle_b.height)
+        paddle_a_offset = game_state.paddle_a.move(shake_x, shake_y)
+        paddle_b_offset = game_state.paddle_b.move(shake_x, shake_y)
         
         draw_glow_rect(screen, THEMES[current_theme]["paddle_color"], paddle_a_offset, 12, 8)
         draw_glow_rect(screen, THEMES[current_theme]["paddle_color"], paddle_b_offset, 12, 8)
         
-        # Draw ball with glow effect
-        ball_center = (ball.centerx + shake_x, ball.centery + shake_y)
+        ball_center = (game_state.ball.centerx + shake_x, game_state.ball.centery + shake_y)
         draw_glow_circle(screen, THEMES[current_theme]["ball_color"], ball_center, BALL_SIZE // 2, 20)
         
-        # Draw particles
         for particle in particles:
             particle.draw(screen)
         
-        # Draw scores with animation
         score_a_scale = 1.0 + (score_animation_a / 30.0) * 0.3
         score_b_scale = 1.0 + (score_animation_b / 30.0) * 0.3
         
-        # Score A
         score_a_color = THEMES[current_theme]["paddle_color"] if score_animation_a > 0 else Colors.WHITE
         score_a_font = pygame.font.Font(None, int(96 * score_a_scale))
-        draw_text_with_shadow(str(score_a), score_a_font, score_a_color, 
+        draw_text_with_shadow(str(game_state.score_a), score_a_font, score_a_color,
                             screen, SCREEN_WIDTH // 4 + shake_x, 60 + shake_y, 3)
         
-        # Score B
         score_b_color = THEMES[current_theme]["paddle_color"] if score_animation_b > 0 else Colors.WHITE
         score_b_font = pygame.font.Font(None, int(96 * score_b_scale))
-        draw_text_with_shadow(str(score_b), score_b_font, score_b_color, 
+        draw_text_with_shadow(str(game_state.score_b), score_b_font, score_b_color,
                             screen, SCREEN_WIDTH * 3 // 4 + shake_x, 60 + shake_y, 3)
 
         animation_time += 1
